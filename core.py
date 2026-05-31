@@ -1,6 +1,8 @@
-project = 'Песочница на tkinter с NPC и простым AI'
+# SandBox/core.py — основной движок симуляции экосистемы
+# CeTzyyy © 2026
 
-# SandBox/core.py
+__progect = 'Песочница на tkinter с NPC и простым AI'
+
 import tkinter as tk
 import math
 import random
@@ -14,13 +16,30 @@ if TYPE_CHECKING:
     from SandBox.player import Player, Camera
 
 
-
-
 class SandBox:
-    '''Песочница для размещения обьектов'''
+    """Главный класс симуляции экосистемы.
+    
+    Управляет холстом, сущностями, коллизиями, камерой и игровым циклом.
+    Мир центрирован: координаты от -width/2 до width/2.
+    
+    Attributes:
+        _entities: список всех живых существ (Entity, Peaceful, Predator, Player)
+        _objects: список статических объектов (Plant, StaticObject, Den)
+        _camera: камера для панорамирования и зума
+        _grid: SpatialGrid для быстрых коллизий
+        _total_kills: счётчик убийств
+        _total_deaths: счётчик смертей
+    """
+    
     def __init__(self, collision_enabled=True, world_height=5000, world_width=5000, show_borders=True):
-        """Создать песочницу с холстом"""
+        """Создать песочницу с холстом tkinter.
         
+        Args:
+            collision_enabled: включить коллизии между сущностями
+            world_height: высота мира в пикселях
+            world_width: ширина мира в пикселях
+            show_borders: рисовать красную рамку границ мира
+        """
         from SandBox.entities import Entity, Peaceful, Predator
         from SandBox.objects import StaticObject, Plant
         from SandBox.player import Player, Camera
@@ -30,6 +49,8 @@ class SandBox:
         self._ground.state('zoomed')
         self._ground.config(bg="#E7E7E7")
         self._collision_enabled = collision_enabled
+        
+        # Привязка событий мыши
         self._ground.bind("<Double-Button-1>", self.on_double_click)
         self._ground.bind("<Button-3>", self.on_click)
         self._ground.bind("<ButtonPress-2>", self._on_camera_drag_start)
@@ -41,6 +62,7 @@ class SandBox:
         self._world_offset_x = -world_width // 2  
         self._world_offset_y = -world_height // 2
         
+        # FPS-счётчик
         self._fps_counter = 0
         self._fps_timer = time.time()
         self._last_fps = 0
@@ -48,6 +70,7 @@ class SandBox:
         self._follow_target = None
         self._selected_entity = None
         
+        # Холст и PIL-изображение для рендеринга
         self._canvas = tk.Canvas(self._ground, bg="white")
         self._canvas.pack(fill=tk.BOTH, expand=True)
         
@@ -74,41 +97,57 @@ class SandBox:
         self._tk_image = ImageTk.PhotoImage(self._pil_image)
         self._canvas_image = self._canvas.create_image(0, 0, anchor="nw", image=self._tk_image)
     
-    
     def __str__(self):
-        return f"Проект: {project}"
+        return f"Проект: {__progect}"
     
     def __repr__(self):
-        return f"Project('{project}')"
+        return f"Project('{__progect}')"
     
     def __call__(self, FPS=60):
-        """Запуск песочницы"""
+        """Запустить симуляцию с указанным FPS.
+        
+        Args:
+            FPS: кадров в секунду (по умолчанию 60)
+        """
         self.update(FPS)
         self._ground.mainloop()
         
     @property
     def width(self):
+        """Ширина холста в пикселях."""
         return self._canvas.winfo_width()
 
     @property
     def height(self):
+        """Высота холста в пикселях."""
         return self._canvas.winfo_height()
         
-        
     def create_player(self, color="#00FF00", speed=3):
+        """Создать управляемого игрока-наблюдателя.
+        
+        Args:
+            color: цвет в hex-формате
+            speed: скорость перемещения
+        """
         from SandBox.player import Player 
         self._player = Player(600, 375, color=color, speed=speed) 
         self.add_entity(self._player)
         
-        
     def spawn_random_entities(self, count, *types, color=None, **kwargs):
-        """Создать случайных Entity указанных типов"""
+        """Создать случайных существ указанных типов.
+        
+        Args:
+            count: количество существ
+            *types: классы существ (Peaceful, Predator, etc.)
+            color: цвет (если None — используется цвет по умолчанию)
+            **kwargs: параметры, передаваемые в конструктор существа
+        """
         from SandBox.entities import Entity
         if not types:
-            types = (Entity,)  # по умолчанию обычные Entity
+            types = (Entity,)
         
         for i in range(count):
-            entity_type = random.choice(types)  # случайный тип!
+            entity_type = random.choice(types)
             x = random.randint(self._world_offset_x + 50, self._world_offset_x + self._world_width - 50)
             y = random.randint(self._world_offset_y + 50, self._world_offset_y + self._world_height - 50)
             
@@ -118,9 +157,35 @@ class SandBox:
                 entity = entity_type(x, y, **kwargs)
             
             self._entities.append(entity)
-                            
+            
+    def configure_entities(self, entity_type, breeding_enabled=None, **params):
+        """Массовая настройка параметров существ заданного типа.
+        
+        Args:
+            entity_type: класс (Peaceful, Predator, etc.)
+            breeding_enabled: True — разрешить размножение, False — запретить, None — не трогать
+            **params: любые атрибуты для установки (breed_chance, chase_speed, etc.)
+        """
+        for e in self._entities:
+            if isinstance(e, entity_type):
+                for attr, value in params.items():
+                    if hasattr(e, attr):
+                        setattr(e, attr, value)
+                
+                if breeding_enabled is not None:
+                    if breeding_enabled:
+                        e.breed_cooldown = 0
+                    else:
+                        e.breed_cooldown = 999999
+                        
     def spawn_random_objects(self, count, color="#AFAEAE", form='rectangle'):
-        """Создать случайных Object в количестве count"""
+        """Создать случайные статические объекты.
+        
+        Args:
+            count: количество объектов
+            color: цвет
+            form: 'rectangle' или 'oval'
+        """
         from SandBox.objects import StaticObject 
         for i in range(count):
             x = random.randint(self._world_offset_x + 50, self._world_offset_x + self._world_width - 50)
@@ -129,7 +194,10 @@ class SandBox:
             self._objects.append(object)
             
     def draw_all(self):
-        """Нарисовать всех Entity и Object на холсте"""
+        """Отрисовать все объекты и существ на холсте.
+        
+        Порядок: нижний слой (растения) → существа → верхний слой (объекты с collision) → границы мира.
+        """
         self._pil_draw.rectangle([0, 0, self.width, self.height], fill="white") 
         
         for o in self._objects:
@@ -155,10 +223,14 @@ class SandBox:
         self._canvas.itemconfig(self._canvas_image, image=self._tk_image)
         
     def check_collision(self):
-        """Проверить столкновения и не дать пройти сквозь"""
+        """Проверить столкновения и разрешить их выталкиванием.
+        
+        Использует SpatialGrid для быстрого поиска соседей.
+        Убегающие мирные (state='flee') не отталкиваются.
+        """
         from SandBox.entities import Peaceful
         if self._collision_enabled:
-            # Entity ↔ Entity (через SpatialGrid)
+            # Entity ↔ Entity
             self._grid.clear()
             for e in self._entities:
                 self._grid.add(e)
@@ -167,7 +239,7 @@ class SandBox:
                 if entity == self._player: 
                     continue
                 if isinstance(entity, Peaceful) and getattr(entity, 'state', None) == "flee":
-                    continue  # убегающих не отталкивать!
+                    continue
                 nearby = self._grid.get_nearby(entity)
                 for other in nearby:
                     if other == self._player:
@@ -183,7 +255,6 @@ class SandBox:
                         if dist > 0:
                             nx = dx / dist
                             ny = dy / dist
-                            
                             entity.pos.x += nx * overlap / 2
                             entity.pos.y += ny * overlap / 2
                             other.pos.x -= nx * overlap / 2
@@ -194,7 +265,7 @@ class SandBox:
                 if entity == self._player:
                     continue
                 if isinstance(entity, Peaceful) and getattr(entity, 'state', None) == "flee":
-                    continue  # убегающих не отталкивать от стен!
+                    continue
                 for obj in self._objects:
                     if obj.layer == "lower":
                         continue
@@ -212,7 +283,7 @@ class SandBox:
                             entity.pos.x += nx * overlap
                             entity.pos.y += ny * overlap
                             
-            # Закреп у границ мира с мягким отталкиванием
+            # Мягкое отталкивание от границ мира
             margin = 50
             for entity in self._entities:
                 left = self._world_offset_x + margin
@@ -220,7 +291,6 @@ class SandBox:
                 top = self._world_offset_y + margin
                 bottom = self._world_offset_y + self._world_height - margin
                 
-                # Мягкое отталкивание вместо жёсткого закрепа
                 if entity.pos.x < left:
                     entity.pos.x += (left - entity.pos.x) * 0.3
                 elif entity.pos.x > right:
@@ -231,31 +301,52 @@ class SandBox:
                 elif entity.pos.y > bottom:
                     entity.pos.y += (bottom - entity.pos.y) * 0.3
                     
-    def spawn_plants(self, clusters=10, min_plants=10, max_plants=25, spread=100):
-        """Засеять траву"""
+    def spawn_plants(self, clusters=10, min_plants=10, max_plants=25, spread=100,
+                    food_min=2, food_max=5, regrowth_min=0.003, regrowth_max=0.015,
+                    bite_min=0.5, bite_max=1.5, bite_mult=0.8,
+                    respawn_chance=0.0005, respawn_percent=0.3):
+        """Засеять траву кучками (кластерами).
+        
+        Args:
+            clusters: количество кучек
+            min_plants, max_plants: границы количества растений в кучке
+            spread: разброс от центра кучки в пикселях
+            food_min, food_max: границы начальной еды
+            regrowth_min, regrowth_max: границы скорости восстановления
+            bite_min, bite_max: границы размера укуса
+            bite_mult: множитель пищевой ценности
+            respawn_chance: шанс возрождения съеденного растения за кадр
+            respawn_percent: процент максимальной еды при возрождении
+        """
         from SandBox.objects import Plant
         for _ in range(clusters):
-            # Центр кучки
             cx = random.randint(self._world_offset_x + 200, self._world_offset_x + self._world_width - 200)
             cy = random.randint(self._world_offset_y + 200, self._world_offset_y + self._world_height - 200)
-            
-            # Случайное количество растений в кучке
             count = random.randint(min_plants, max_plants)
             
             for _ in range(count):
-                # Случайные координаты внутри кучки (процент от spread)
                 x = cx + random.randint(-spread, spread)
                 y = cy + random.randint(-spread, spread)
-                plant = Plant(x, y)
+                plant = Plant(x, y,
+                            food_min=food_min, food_max=food_max,
+                            regrowth_min=regrowth_min, regrowth_max=regrowth_max,
+                            bite_min=bite_min, bite_max=bite_max, bite_mult=bite_mult,
+                            respawn_chance=respawn_chance, respawn_percent=respawn_percent)
                 self._objects.append(plant)
                     
-            
     def update(self, FPS=60):
-        '''Игровой цикл, воспроизводится каждый кадр'''
+        """Главный игровой цикл — выполняется каждый кадр.
+        
+        Порядок: отрисовка → поведение существ → коллизии → голод/здоровье → размножение → смерть.
+        
+        Args:
+            FPS: кадров в секунду
+        """
         from SandBox.entities import Entity, Peaceful, Predator, mix_colors
         from SandBox.objects import Plant
         delay = 1000 // FPS
         
+        # FPS и статистика в заголовке окна
         self._fps_counter += 1
         current_time = time.time()
         elapsed = current_time - self._fps_timer
@@ -272,7 +363,7 @@ class SandBox:
             self._fps_counter = 0
             self._fps_timer = current_time
         
-        # Обновлять инфо-панель каждый кадр
+        # Инфо-панель по выбранному существу
         if self._selected_entity:
             if self._selected_entity in self._entities:
                 self._update_info_label()
@@ -281,6 +372,8 @@ class SandBox:
                 self._info_label.config(text="")
         
         self.draw_all()
+        
+        # Движение не-хищников и не-мирных (Player, будущие Human)
         for e in self._entities:
             if e != self._player and not isinstance(e, Predator) and not isinstance(e, Peaceful):
                 e.move_random(self._world_width, self._world_height)
@@ -290,11 +383,10 @@ class SandBox:
         if self._player:
             self._player.move_to_target()
             
-        # Хищники — охота или размножение
+        # === Хищники: поиск партнёра или охота ===
         victims_to_remove = []
         for e in self._entities:
             if isinstance(e, Predator):
-                # Сначала ищем партнёра
                 mate = e.find_mate(self._entities)
                 if mate:
                     e.state = "seek_mate"
@@ -303,13 +395,28 @@ class SandBox:
                     dy = mate.pos.y - e.pos.y
                     dist = Vector(dx, dy).length()
                     if dist > 0:
-                        speed = e.dna.speed * 0.8
+                        speed = e.dna.speed * getattr(e, 'mate_speed', 0.8)
                         e.pos.x += (dx / dist) * speed
                         e.pos.y += (dy / dist) * speed
-                    e.hunger -= 0.01  # Поиск партнёра дёшев
+                    e.hunger -= getattr(e, 'mate_cost', 0.01)
                 else:
-                    # Нет партнёра — охотимся
                     e.find_target(self._entities)
+                    
+                    # Цель в логове? — не преследовать
+                    if e.target:
+                        from SandBox.objects import Den
+                        in_den = False
+                        for obj in self._objects:
+                            if isinstance(obj, Den) and obj.is_safe(e.target):
+                                in_den = True
+                                break
+                        if in_den:
+                            e.target = None
+                            e.state = "patrol"
+                            e.patrol_target = None
+                            e.patrol_steps = 0
+                            continue
+                    
                     victim = e.chase_target(self._world_width, self._world_height)
                     if victim and victim in self._entities:
                         victims_to_remove.append((e, victim))
@@ -319,7 +426,7 @@ class SandBox:
                 self._entities.remove(victim)
         self._total_kills += len(victims_to_remove)
         
-        # Peaceful — поведение
+        # === Мирные: бегство, поиск партнёра, кормёжка ===
         dead = []
         for e in self._entities:
             if isinstance(e, Peaceful):
@@ -329,16 +436,15 @@ class SandBox:
                 threat, dist = e.see_predator(self._entities)
                 
                 if threat:
-                    # Бегство — мирные медленнее хищников!
                     if dist < 50:
-                        speed_mult = 1.2 * hunger_mod * hp_mod  # Было 2.0
-                        hunger_cost = 0.08  # Паника затратна
+                        speed_mult = e.flee_speed_close * hunger_mod * hp_mod
+                        hunger_cost = e.flee_cost_close
                     elif dist < 100:
-                        speed_mult = 1.0 * hunger_mod * hp_mod  # Было 1.5
-                        hunger_cost = 0.05
+                        speed_mult = e.flee_speed_mid * hunger_mod * hp_mod
+                        hunger_cost = e.flee_cost_mid
                     else:
-                        speed_mult = 0.8 * hunger_mod * hp_mod  # Было 1.2
-                        hunger_cost = 0.03
+                        speed_mult = e.flee_speed_far * hunger_mod * hp_mod
+                        hunger_cost = e.flee_cost_far
                     
                     dx = e.pos.x - threat.pos.x
                     dy = e.pos.y - threat.pos.y
@@ -361,12 +467,11 @@ class SandBox:
                         dy = mate.pos.y - e.pos.y
                         dist = Vector(dx, dy).length()
                         if dist > 0:
-                            speed = e.dna.speed * 0.7 * hunger_mod * hp_mod
+                            speed = e.dna.speed * e.mate_speed * hunger_mod * hp_mod
+                            e.hunger -= e.mate_cost
                             e.pos.x += (dx / dist) * speed
                             e.pos.y += (dy / dist) * speed
-                        e.hunger -= 0.02
                     else:
-                        # Ищем ближайшее растение
                         closest_plant = None
                         min_plant_dist = 100
                         
@@ -387,44 +492,47 @@ class SandBox:
                                 e.hunger = min(100, e.hunger + food)
                                 e.state = "eat"
                             elif dist > 0:
-                                speed = e.dna.speed * 0.3 * hunger_mod * hp_mod
+                                speed = e.dna.speed * e.graze_speed * hunger_mod * hp_mod
                                 e.pos.x += (dx / dist) * speed
                                 e.pos.y += (dy / dist) * speed
                                 e.state = "graze"
-                            e.hunger -= 0.008
+                            e.hunger -= e.graze_cost
                         else:
                             e.state = "wander"
                             e.move_random(self._world_width, self._world_height)
-                            # Базовый метаболизм зависит от размера
-                            base_metabolism = 0.003 + (e.dna.size / 10) * 0.004
-                            e.hunger -= base_metabolism
-                
-                # Голод влияет на здоровье
-                if e.hunger > 80:
-                    e.hp = min(e.hp + 0.05, e.dna.hp)
-                elif e.hunger < 20:
-                    e.hp -= (20 - e.hunger) * 0.01
-                
+                            e.hunger -= e.base_metabolism * (e.dna.size ** 0.75)
+        
+        # === Здоровье от голода: мирные ===
+        for e in self._entities:
+            if isinstance(e, Peaceful):
+                if e.hunger >= e.hp_regen_threshold:
+                    e.hp = min(e.hp + e.hp_regen_rate, e.dna.hp)
+                elif e.hunger <= e.hp_damage_threshold:
+                    e.hp -= (e.hp_damage_threshold - e.hunger) * e.hp_damage_rate
+                    if e.hp <= 0:
+                        dead.append(e)
+                        continue
                 if e.hunger <= 0:
                     dead.append(e)
         
+        # === Здоровье от голода: хищники ===
         for e in self._entities:
             if isinstance(e, Predator):
-                # Голод влияет на здоровье хищников
-                if e.hunger > 80:
-                    e.hp = min(e.hp + 0.05, e.dna.hp)
-                elif e.hunger < 20:
-                    e.hp -= (20 - e.hunger) * 0.01
-                
+                if e.hunger >= getattr(e, 'hp_regen_threshold', 80):
+                    e.hp = min(e.hp + getattr(e, 'hp_regen_rate', 0.05), e.dna.hp)
+                elif e.hunger <= getattr(e, 'hp_damage_threshold', 20):
+                    e.hp -= (getattr(e, 'hp_damage_threshold', 20) - e.hunger) * getattr(e, 'hp_damage_rate', 0.01)
+                    if e.hp <= 0:
+                        dead.append(e)
+                        continue
                 if e.hunger <= 0:
                     dead.append(e)
 
         self._total_deaths += len(dead)
 
+        # === Смерть: удобрение почвы ===
         for e in dead:
-            
             if e in self._entities:
-                # Удобрение почвы
                 for _ in range(3):
                     x = e.pos.x + random.randint(-20, 20)
                     y = e.pos.y + random.randint(-20, 20)
@@ -433,76 +541,68 @@ class SandBox:
                     self._objects.append(plant)
                 self._entities.remove(e)
                 
-        # Старение, рост и кулдауны
+        # === Рост, старение, кулдауны ===
         for e in self._entities:
             if isinstance(e, (Peaceful, Predator)):
-                # Рост до максимального размера
                 if e.size < e.max_size:
                     e.size += e.growth_rate
                     if e.size > e.max_size:
                         e.size = e.max_size
-                
                 e.age += 1
                 if e.breed_cooldown > 0:
                     e.breed_cooldown -= 1
         
-        # Размножение
+        # === Размножение ===
         new_borns = []
         for i in range(len(self._entities)):
             for j in range(i+1, len(self._entities)):
                 e1, e2 = self._entities[i], self._entities[j]
                 if isinstance(e1, Peaceful) and isinstance(e2, Peaceful):
-                    if (e1.hunger > 50 and e2.hunger > 50 and  # Было 70
-                        e1.hp > e1.dna.hp * 0.5 and e2.hp > e2.dna.hp * 0.5 and  # Было 0.7
+                    if (e1.hunger >= e1.breed_hunger and e2.hunger >= e2.breed_hunger and
+                        e1.hp >= e1.dna.hp * e1.breed_hp_threshold and e2.hp >= e2.dna.hp * e2.breed_hp_threshold and
                         e1.age >= e1.breeding_age and e2.age >= e2.breeding_age and
                         e1.breed_cooldown <= 0 and e2.breed_cooldown <= 0):
-
                         if e1.pos.distance_to(e2.pos) < 30:
-                            if random.random() < 0.1:
+                            if random.random() < e1.breed_chance:
                                 child_dna = e1.dna.breed(e2.dna)
-                                child = Peaceful(
-                                    (e1.pos.x + e2.pos.x) / 2,
-                                    (e1.pos.y + e2.pos.y) / 2
-                                )
+                                child = Peaceful((e1.pos.x + e2.pos.x) / 2, (e1.pos.y + e2.pos.y) / 2)
                                 child.dna = child_dna
                                 child.max_size = child_dna.size
                                 child.size = child.max_size * 0.4
-                                child.growth_rate = child.max_size / 600
+                                child.growth_rate = child.max_size / getattr(e1, 'growth_divider', 600)
                                 child.speed = (-child_dna.speed, child_dna.speed)
                                 child.color = mix_colors(e1.color, e2.color)
                                 new_borns.append(child)
-                                e1.hunger -= 25
-                                e2.hunger -= 25
-                                e1.breed_cooldown = int(200 + e1.dna.size * 20)
-                                e2.breed_cooldown = int(200 + e2.dna.size * 20)
+                                e1.hunger -= e1.breed_hunger * 0.5
+                                e2.hunger -= e2.breed_hunger * 0.5
+                                e1.breed_cooldown = int(e1.breed_cooldown_base + e1.dna.size * e1.breed_cooldown_per_size)
+                                e2.breed_cooldown = int(e2.breed_cooldown_base + e2.dna.size * e2.breed_cooldown_per_size)
                                 
                 elif isinstance(e1, Predator) and isinstance(e2, Predator):
-                    if (e1.hunger > 75 and e2.hunger > 75 and
+                    if (e1.hunger >= e1.breed_hunger and e2.hunger >= e2.breed_hunger and
                         e1.age >= e1.breeding_age and e2.age >= e2.breeding_age and
                         e1.breed_cooldown <= 0 and e2.breed_cooldown <= 0):
                         if e1.pos.distance_to(e2.pos) < 30:
-                            if random.random() < 0.006:
+                            if random.random() < e1.breed_chance:
                                 child_dna = e1.dna.breed(e2.dna)
-                                child = Predator(
-                                    (e1.pos.x + e2.pos.x) / 2,
-                                    (e1.pos.y + e2.pos.y) / 2
-                                )
+                                child = Predator((e1.pos.x + e2.pos.x) / 2, (e1.pos.y + e2.pos.y) / 2)
                                 child.dna = child_dna
                                 child.max_size = child_dna.size
                                 child.size = child.max_size * 0.4
-                                child.growth_rate = child.max_size / 900
+                                child.growth_rate = child.max_size / getattr(e1, 'growth_divider', 900)
                                 child.speed = (-child_dna.speed, child_dna.speed)
                                 child.color = mix_colors(e1.color, e2.color)
-                                child.hunger = 70
+                                child.hunger = getattr(e1, 'child_hunger', 70)
                                 new_borns.append(child)
-                                e1.hunger -= 35
-                                e2.hunger -= 35
-                                e1.breed_cooldown = int(400 + e1.dna.size * 30)
-                                e2.breed_cooldown = int(400 + e2.dna.size * 30)
+                                e1.hunger -= e1.breed_hunger * 0.5
+                                e2.hunger -= e2.breed_hunger * 0.5
+                                e1.breed_cooldown = int(e1.breed_cooldown_base + e1.dna.size * e1.breed_cooldown_per_size)
+                                e2.breed_cooldown = int(e2.breed_cooldown_base + e2.dna.size * e2.breed_cooldown_per_size)
 
         for child in new_borns:
             self._entities.append(child)
         
+        # Камера следует за выбранным существом
         if self._follow_target and self._follow_target in self._entities:
             self._camera.x = self._follow_target.pos.x - self.width / 2
             self._camera.y = self._follow_target.pos.y - self.height / 2
@@ -511,39 +611,87 @@ class SandBox:
         for obj in self._objects:
             if isinstance(obj, Plant):
                 obj.regrow()
-                
+        
+        # Истощение при голоде
         for e in self._entities:
             if isinstance(e, (Peaceful, Predator)):
                 if e.hunger < 30:
-                    # Истощение: временно уменьшаем размер
                     starvation_size = e.max_size * (0.5 + e.hunger / 60)
-                    if starvation_size < e.size:  # Не даём истощению ускорить рост
+                    if starvation_size < e.size:
                         e.size = starvation_size
-                        
+        
+        # Затухание памяти хищников
+        for e in self._entities:
+            if hasattr(e, 'memory'):
+                for mem in e.memory:
+                    mem[2] -= 0.1
+                e.memory = [m for m in e.memory if m[2] > 0]
+        
+        # Отталкивание от границ и случайное отклонение
         for e in self._entities:
             if isinstance(e, (Peaceful, Predator)):
-                e.avoid_boundaries(
-                    self._world_offset_x, 
-                    self._world_offset_y, 
-                    self._world_width, 
-                    self._world_height
-                )
-                # Лёгкое случайное отклонение чтобы не застревать
+                e.avoid_boundaries(self._world_offset_x, self._world_offset_y, 
+                                   self._world_width, self._world_height)
                 e.add_random_deviation(0.2)
+        
+        # Мирные бегут к логову
+        for e in self._entities:
+            if isinstance(e, Peaceful) and e.state == "flee":
+                home = e.want_to_go_home(self._objects)
+                if home:
+                    dx = home.pos.x - e.pos.x
+                    dy = home.pos.y - e.pos.y
+                    dist = Vector(dx, dy).length()
+                    if dist > 0:
+                        e.pos.x += (dx / dist) * e.dna.speed * 1.5
+                        e.pos.y += (dy / dist) * e.dna.speed * 1.5
+                    if dist < home.safe_radius:
+                        e.state = "rest"
+        
+        # Анти-застревание: встряхнуть если стоит на месте 3+ секунды
+        for e in self._entities:
+            if isinstance(e, (Peaceful, Predator)):
+                if not hasattr(e, 'stuck_frames'):
+                    e.stuck_frames = 0
+                    e.last_stuck_pos = Vector(e.pos.x, e.pos.y)
+                
+                if e.pos.distance_to(e.last_stuck_pos) < 1:
+                    e.stuck_frames += 1
+                else:
+                    e.stuck_frames = 0
+                e.last_stuck_pos = Vector(e.pos.x, e.pos.y)
+                
+                if e.stuck_frames > 180:
+                    e.pos.x += random.uniform(-20, 20)
+                    e.pos.y += random.uniform(-20, 20)
+                    e.state = "wander" if isinstance(e, Predator) else "graze"
+                    e.target = None
+                    e.target_mate = None
+                    e.stuck_frames = 0
         
         self._ground.after(delay, lambda: self.update(FPS))
                 
     def add_entity(self, entity):
-        """Добавить Entity в песочницу"""
+        """Добавить существо в симуляцию."""
         self._entities.append(entity)
         
     def add_object(self, object):
-        """Добавить Object в песочницу"""
+        """Добавить статический объект в симуляцию."""
         self._objects.append(object)
         
+    def spawn_den(self, x, y, size=40):
+        """Создать логово (убежище для мирных).
+        
+        Args:
+            x, y: координаты центра
+            size: радиус логова
+        """
+        from SandBox.objects import Den
+        den = Den(x, y, size=size)
+        self._objects.append(den)
+    
     def on_click(self, event):
-        '''Показать инфо об Entity по правому клику'''
-
+        """ПКМ: показать информацию о существе под курсором."""
         clicked = None
         for e in self._entities:
             screen_x, screen_y = self._camera.world_to_screen(e.pos.x, e.pos.y)
@@ -556,17 +704,17 @@ class SandBox:
         
         if clicked:
             self._selected_entity = clicked
-            self._follow_target = clicked  # ← следить за выбранным!
+            self._follow_target = clicked
             self._update_info_label()
         else:
             self._selected_entity = None
-            self._follow_target = None  # ← перестать следить
+            self._follow_target = None
             self._info_label.config(text="")
 
     def _update_info_label(self):
-        """Обновить инфо-панель для выбранного Entity"""
+        """Обновить инфо-панель: тип, размер, голод, HP, ДНК, возраст."""
         from SandBox.entities import Peaceful, Predator
-        from SandBox.player import Playe
+        from SandBox.player import Player
         if not self._selected_entity:
             self._info_label.config(text="")
             return
@@ -604,7 +752,6 @@ class SandBox:
             info_lines.append(f"Attack: {clicked.dna.attack:.1f}")
             info_lines.append(f"Courage: {clicked.dna.courage:.2f}")
         
-        # Возраст и кулдаун в секундах
         age = getattr(clicked, 'age', None)
         if age is not None:
             info_lines.append(f"Age: {age / 60:.1f}s")
@@ -613,27 +760,25 @@ class SandBox:
         if cooldown is not None and cooldown > 0:
             info_lines.append(f"Breed CD: {cooldown / 60:.1f}s")
         
-        # Семейный ID
         info_lines.append(f"Family: {clicked.dna.family_id}")
         
         self._info_label.config(text="\n".join(info_lines))
         
-        
     def on_double_click(self, event):
-        '''Установить позицию игрока по нажатию'''
+        """Двойной клик: переместить игрока в точку."""
         if self._player:
             world_x, world_y = self._camera.screen_to_world(event.x, event.y)
             world_x = max(self._world_offset_x + 10, min(world_x, self._world_offset_x + self._world_width - 10))
             world_y = max(self._world_offset_y + 10, min(world_y, self._world_offset_y + self._world_height - 10))
             self._player.set_target(world_x, world_y)
-
-            
             
     def _on_camera_drag_start(self, event):
+        """Начало перетаскивания камеры (средняя кнопка мыши)."""
         self._drag_start_x = event.x
         self._drag_start_y = event.y
         
     def _on_camera_drag(self, event):
+        """Перетаскивание камеры."""
         dx = event.x - self._drag_start_x
         dy = event.y - self._drag_start_y
         self._camera.x -= dx / self._camera.zoom
@@ -642,19 +787,19 @@ class SandBox:
         self._drag_start_y = event.y
         
     def _on_camera_drag_end(self, event):
+        """Конец перетаскивания камеры."""
         pass
 
-    
-        
-        
+
 class Vector:
-    """2D вектор для позиций и движения"""
+    """2D вектор для позиций, скорости и расстояний."""
+    
     def __init__(self, x, y):
         self.x = x
         self.y = y
         
     def distance_to(self, other):
-        """Расстояние до другого вектора"""
+        """Евклидово расстояние до другого вектора."""
         dx = self.x - other.x
         dy = self.y - other.y
         return math.sqrt(dx**2 + dy**2)
@@ -662,21 +807,27 @@ class Vector:
     def __str__(self):
         return f"Vector({self.x}, {self.y})"
     
-    
     def length(self):
-        """Вернуть длину вектора"""
+        """Длина (модуль) вектора."""
         return math.sqrt(self.x ** 2 + self.y ** 2)
 
+
 class SpatialGrid:
-    """Разбивает мир на клетки для быстрых коллизий"""
+    """Пространственная сетка для быстрого поиска соседей (коллизии).
+    
+    Разбивает мир на клетки размером cell_size и хранит сущности в ячейках.
+    """
+    
     def __init__(self, cell_size=100):
         self.cell_size = cell_size
         self.grid = {}
     
     def clear(self):
+        """Очистить сетку перед новым кадром."""
         self.grid.clear()
     
     def add(self, entity):
+        """Добавить сущность в соответствующую ячейку."""
         col = int(entity.pos.x // self.cell_size)
         row = int(entity.pos.y // self.cell_size)
         key = (col, row)
@@ -685,6 +836,7 @@ class SpatialGrid:
         self.grid[key].append(entity)
     
     def get_nearby(self, entity):
+        """Вернуть список сущностей в текущей и соседних ячейках."""
         col = int(entity.pos.x // self.cell_size)
         row = int(entity.pos.y // self.cell_size)
         nearby = []
@@ -694,7 +846,8 @@ class SpatialGrid:
                 if key in self.grid:
                     nearby.extend(self.grid[key])
         return nearby
-    
+
+
 if __name__ == '__main__':
     try:
         game = SandBox()
