@@ -347,54 +347,79 @@ class Predator(Entity):
             self.target = None
             self.state = "patrol"
 
-    def chase_target(self, world_width=1200, world_height=750):
-        """Преследовать цель или патрулировать.
+    def chase_target(self, world_width=1200, world_height=750, all_entities=None):
+        """Преследовать цель (охота) или патрулировать территорию.
         
-        В режиме 'hunt': движется к цели, атакует при контакте.
-        При убийстве запоминает место, восстанавливает голод.
-        В режиме 'patrol': движется к patrol_target, меняет цель когда дошёл или застрял.
+        В режиме охоты (state='hunt'):
+            - Двигается к цели с chase_speed
+            - При контакте атакует, НО если мирных рядом 5+ — они дают отпор
+            - При убийстве запоминает место в memory
+        
+        В режиме патруля (state='patrol'):
+            - Двигается к patrol_target длинными перегонами (600-1000px)
+            - С шансом memory_chance идёт к запомненному месту охоты
+            - Меняет направление каждые 5-8 секунд (300-500 кадров)
+            - При застревании >60 кадров принудительно меняет цель
         
         Args:
-            world_width (int): ширина мира
-            world_height (int): высота мира
-            
+            world_width, world_height: размеры мира (не используются, оставлены для совместимости)
+            all_entities: список всех Entity для проверки fight_back (мирные дают отпор)
+        
         Returns:
-            Peaceful|None: убитая жертва или None
+            Entity или None: убитая жертва (если удалось убить), иначе None
         """
         hunger_mod = 0.6 + (self.hunger / 100) * 0.4
         hp_mod = 0.5 + (self.hp / self.dna.hp) * 0.5
-
+        
         if not hasattr(self, 'stuck_timer'):
             self.stuck_timer = 0
             self.last_pos = Vector(self.pos.x, self.pos.y)
         if not hasattr(self, 'patrol_steps'):
             self.patrol_steps = 0
-
+        
         if self.pos.distance_to(self.last_pos) < 2:
             self.stuck_timer += 1
         else:
             self.stuck_timer = 0
         self.last_pos = Vector(self.pos.x, self.pos.y)
-
-        if self.state == "hunt" and self.target and isinstance(self.target, Peaceful):
+        
+        if self.state == "hunt" and self.target and type(self.target).__name__ == "Peaceful":
             hunt_cost = self.hunt_cost + (self.dna.size / 10) * self.hunt_cost_per_size
             self.hunger -= hunt_cost
-
+            
             if self.stuck_timer > 20:
                 self.pos.x += random.uniform(-5, 5)
                 self.pos.y += random.uniform(-5, 5)
                 self.stuck_timer = 0
-
+            
             victim = self.target
             dx = victim.pos.x - self.pos.x
             dy = victim.pos.y - self.pos.y
             dist = math.sqrt(dx**2 + dy**2)
-
+            
             if dist < self.size + victim.size:
+                # Проверка: мирные дают отпор?
+                counter_damage = 0
+                if all_entities and hasattr(victim, 'fight_back'):
+                    counter_damage = victim.fight_back(self, all_entities)
+                
+                if counter_damage > 0:
+                    # Мирные атакуют группой!
+                    self.hp -= counter_damage
+                    # Отбросить хищника
+                    if dist > 0:
+                        self.pos.x -= (dx / dist) * 15
+                        self.pos.y -= (dy / dist) * 15
+                    self.target = None
+                    self.state = "patrol"
+                    self.patrol_steps = 0
+                    return None
+                
+                # Обычная атака
                 damage_multiplier = 1.0 + (self.hunger < 20) * 0.5
                 damage = self.dna.attack * damage_multiplier
                 victim.hp -= damage
-
+                
                 if victim.hp <= 0:
                     self.hunger = min(100, self.hunger + victim.nutrition_value * 0.8)
                     self.memory.append([victim.pos.x, victim.pos.y, 100.0])
@@ -410,33 +435,34 @@ class Predator(Entity):
                     self.pos.x += (dx / dist) * chase_speed
                     self.pos.y += (dy / dist) * chase_speed
             return None
-
+        
         else:
             patrol_cost = self.patrol_cost + (self.dna.size / 10) * self.patrol_cost_per_size
             self.hunger -= patrol_cost
+            
             self.patrol_steps -= 1
-
+            
             if self.stuck_timer > 60:
                 self.patrol_steps = 0
                 self.stuck_timer = 0
-
+            
             if not self.patrol_target or self.patrol_steps <= 0:
                 if self.memory and random.random() < self.memory_chance:
                     best = max(self.memory, key=lambda m: m[2])
                     self.patrol_target = Vector(best[0], best[1])
                 else:
                     angle = random.uniform(0, 2 * math.pi)
-                    distance = random.uniform(400, 800)
+                    distance = random.uniform(600, 1000)
                     self.patrol_target = Vector(
                         self.pos.x + math.cos(angle) * distance,
                         self.pos.y + math.sin(angle) * distance
                     )
-                self.patrol_steps = random.randint(180, 300)
-
+                self.patrol_steps = random.randint(300, 500)
+            
             dx = self.patrol_target.x - self.pos.x
             dy = self.patrol_target.y - self.pos.y
             dist = math.sqrt(dx**2 + dy**2)
-
+            
             if dist < 40:
                 self.patrol_steps = 0
             elif dist > 0:
@@ -448,12 +474,11 @@ class Predator(Entity):
     def find_mate(self, all_entities):
         """Найти партнёра для размножения среди других хищников.
         
-        Условия:
-        - Свой голод >= breed_hunger
-        - Возраст >= breeding_age
-        - Кулдаун истёк
-        - Партнёр не родственник (family_id)
-        - Партнёр тоже готов
+        При низкой популяции радиус поиска увеличивается («брачный зов»):
+        - 1-2 хищника → вся карта (2000px)
+        - 3-4 → 1000px
+        - 5-6 → 500px
+        - 7+ → 300px (стандарт)
         
         Args:
             all_entities (list): список всех Entity
@@ -467,9 +492,22 @@ class Predator(Entity):
             return None
         if self.breed_cooldown > 0:
             return None
-
+        
+        # Популяция → радиус поиска
+        population = len([e for e in all_entities if isinstance(e, Predator)])
+        
+        if population <= 2:
+            search_radius = 2000   # вся карта
+        elif population <= 4:
+            search_radius = 1000
+        elif population <= 6:
+            search_radius = 500
+        else:
+            search_radius = 300   # стандарт
+        
         closest = None
-        min_dist = 300
+        min_dist = search_radius
+        
         for e in all_entities:
             if isinstance(e, Predator) and e != self:
                 if e.dna.family_id == self.dna.family_id:
@@ -585,6 +623,28 @@ class Peaceful(Entity):
         self.growth_rate = self.max_size / growth_divider
 
         self.age = 0
+        
+    def fight_back(self, predator, all_allies):
+        """Мирные атакуют хищника группой если их больше 5 рядом.
+        
+        Args:
+            predator: хищник которого атакуют
+            all_allies: список всех мирных поблизости
+        
+        Returns:
+            float: урон хищнику
+        """
+        nearby_allies = 0
+        for ally in all_allies:
+            if ally != self and self.pos.distance_to(ally.pos) < 80:
+                nearby_allies += 1
+        
+        # Нужно минимум 5 мирных рядом чтобы дать отпор
+        if nearby_allies >= 5:
+            # Коллективная атака: каждый мирной наносит 0.3-0.8 урона
+            damage = nearby_allies * random.uniform(0.3, 0.8)
+            return damage
+        return 0
 
     def move_random(self, world_width, world_height):
         """Блуждание по территории.

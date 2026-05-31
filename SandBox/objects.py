@@ -158,10 +158,12 @@ class Den(StaticObject):
     """Логово/убежище для мирных существ.
     
     Мирные внутри safe_radius считаются в безопасности — хищники их не атакуют.
-    Само логово не блокирует движение (collision=False), но отрисовывается поверх существ (layer='lift').
+    Отрисовывается полупрозрачным, при наведении мыши становится ярче.
     
     Attributes:
-        safe_radius (float): радиус безопасности вокруг центра логова
+        safe_radius (float): радиус безопасности (80px)
+        alpha (int): прозрачность (0-255), 100 = полупрозрачное, 200 = при наведении
+        hovered (bool): флаг наведения курсора
     """
     
     def __init__(self, x, y, size=40, color="#8B7355"):
@@ -170,18 +172,55 @@ class Den(StaticObject):
         Args:
             x, y: мировые координаты центра
             size: визуальный размер (радиус отрисовки)
-            color: цвет логова
+            color: цвет логова (hex, используется как базовый)
         """
         super().__init__(x, y, color=color, form='oval', size=size, collision=False, layer='lift')
         self.safe_radius = 80
+        self.base_color = color
+        self.alpha = 100  # обычная полупрозрачность
+        self.hovered = False
 
     def is_safe(self, entity):
         """Проверить, находится ли сущность внутри безопасной зоны логова.
         
-        Args:
-            entity: любая Entity (ожидается Peaceful)
-            
         Returns:
-            bool: True если entity.pos в пределах safe_radius от центра логова
+            bool: True если в пределах safe_radius
         """
         return self.pos.distance_to(entity.pos) < self.safe_radius
+    
+    def update_hover(self, mouse_world_pos):
+        """Обновить состояние наведения мыши.
+        
+        Args:
+            mouse_world_pos: Vector или None — мировые координаты курсора
+        """
+        if mouse_world_pos:
+            dist = self.pos.distance_to(mouse_world_pos)
+            self.hovered = dist < self.size + 15
+        else:
+            self.hovered = False
+    
+    def draw(self, pil_draw, camera=None):
+        """Отрисовать полупрозрачное логово. Ярче при наведении."""
+        if camera:
+            x, y = camera.world_to_screen(self.pos.x, self.pos.y)
+        else:
+            x, y = self.pos.x, self.pos.y
+        
+        alpha = 100 if self.hovered else 1020
+        
+        # Конвертируем hex в RGB
+        r = int(self.base_color[1:3], 16)
+        g = int(self.base_color[3:5], 16)
+        b = int(self.base_color[5:7], 16)
+        
+        # Рисуем через overlay с альфа-каналом
+        from PIL import Image as PILImage, ImageDraw as PILImageDraw
+        
+        size_px = int(self.size * 2)
+        overlay = PILImage.new('RGBA', (size_px, size_px), (0, 0, 0, 0))
+        overlay_draw = PILImageDraw.Draw(overlay)
+        overlay_draw.ellipse([0, 0, size_px, size_px], fill=(r, g, b, alpha))
+        
+        # Вставляем на основной PIL-рисунок
+        pil_draw._image.paste(overlay, (int(x - self.size), int(y - self.size)), overlay)
