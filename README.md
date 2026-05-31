@@ -31,6 +31,7 @@ SandBox Engine — это не просто игра, а **симуляция ж
 
 ## ⚡ Быстрый старт
 
+```python
 from SandBox import SandBox, Peaceful, Predator, Plant
 
 game = SandBox(world_height=2000, world_width=2000)
