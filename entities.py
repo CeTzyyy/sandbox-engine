@@ -53,7 +53,7 @@ class Entity:
     def move_random(self, world_width, world_height):
         """Патрулирование с учётом состояния"""
         if hasattr(self, 'hunger'):
-            self.hunger -= 0.005
+            self.hunger -= self.wander_cost
         
         # Модификатор скорости от голода и здоровья
         if hasattr(self, 'hunger') and hasattr(self, 'hp'):
@@ -76,7 +76,7 @@ class Entity:
             dy = self.wander_target.y - self.pos.y
             dist = math.sqrt(dx**2 + dy**2)
             if dist > 0:
-                speed = self.dna.speed * 0.5 * speed_mult
+                speed = self.dna.speed * speed_mult
                 self.pos.x += (dx / dist) * speed
                 self.pos.y += (dy / dist) * speed
                 
@@ -127,7 +127,7 @@ class Predator(Entity):
                  child_hunger=70, hunt_threshold=85,
                  chase_speed=1.3, patrol_speed=0.6,
                  vision=200, vision_hungry=350,
-                 base_cost=0.01, cost_per_size=0.01,
+                 base_cost=0.008, cost_per_size=0.008,
                  hunt_cost=0.02, hunt_cost_per_size=0.01,
                  patrol_cost=0.005, patrol_cost_per_size=0.005,
                  breed_hunger=75, breed_cooldown_base=400, breed_cooldown_per_size=30):
@@ -182,10 +182,10 @@ class Predator(Entity):
         )
 
     def find_target(self, all_entities):
-        base_cost = 0.01 + (self.dna.size / 10) * 0.01
-        self.hunger -= base_cost
+        metabolism = self.base_cost * (self.dna.size ** 0.75)
+        self.hunger -= metabolism
         
-        if self.hunger > 85:
+        if self.hunger > self.hunt_threshold:
             self.target = None
             self.state = "patrol"
             return
@@ -193,11 +193,13 @@ class Predator(Entity):
         closest_prey = None
         min_dist = float('inf')
         
+        # Зрение — из атрибутов, зависит от голода
+        vision_range = self.vision_hungry if self.hunger < 30 else self.vision
+        
         for e in all_entities:
             if isinstance(e, Peaceful):
                 weakness_score = (e.dna.hp - e.hp) + (e.hunger < 30) * 50
                 dist = self.pos.distance_to(e.pos)
-                vision_range = 350 if self.hunger < 30 else 200
                 
                 if dist < vision_range:
                     effective_dist = dist - weakness_score * 2
@@ -228,7 +230,7 @@ class Predator(Entity):
         self.last_pos = Vector(self.pos.x, self.pos.y)
         
         if self.state == "hunt" and self.target and isinstance(self.target, Peaceful):
-            hunt_cost = 0.02 + (self.dna.size / 10) * 0.01
+            hunt_cost = self.hunt_cost + (self.dna.size / 10) * self.hunt_cost_per_size
             self.hunger -= hunt_cost
             
             # Если застрял — уклоняйся
@@ -254,12 +256,12 @@ class Predator(Entity):
                     return victim
             else:
                 if dist > 0:
-                    chase_speed = self.dna.speed * 1.3 * hunger_mod * hp_mod
+                    chase_speed = self.dna.speed * self.chase_speed * hunger_mod * hp_mod
                     self.pos.x += (dx / dist) * chase_speed
                     self.pos.y += (dy / dist) * chase_speed
             return None
         else:
-            patrol_cost = 0.005 + (self.dna.size / 10) * 0.005
+            patrol_cost = self.patrol_cost + (self.dna.size / 10) * self.patrol_cost_per_size
             self.hunger -= patrol_cost
             
             # Если застрял при патруле — новая цель
@@ -276,14 +278,14 @@ class Predator(Entity):
                 if dist < 30:
                     self.new_patrol_target()
                 elif dist > 0:
-                    patrol_speed = self.dna.speed * 0.6 * hunger_mod * hp_mod
+                    patrol_speed = self.dna.speed * self.patrol_speed * hunger_mod * hp_mod
                     self.pos.x += (dx / dist) * patrol_speed
                     self.pos.y += (dy / dist) * patrol_speed
             return None
         
     def find_mate(self, all_entities):
         """Хищники ищут партнёра когда сыты"""
-        if self.hunger < 80:
+        if self.hunger < self.breed_hunger:
             return None
         
         if self.age < self.breeding_age:
@@ -300,7 +302,7 @@ class Predator(Entity):
                 if e.dna.family_id == self.dna.family_id:
                     continue
                 
-                if e.hunger > 80 and e.age >= e.breeding_age and e.breed_cooldown <= 0:
+                if e.hunger >= self.breed_hunger and e.age >= e.breeding_age and e.breed_cooldown <= 0:
                     dist = self.pos.distance_to(e.pos)
                     if dist < min_dist:
                         min_dist = dist
@@ -373,7 +375,7 @@ class Peaceful(Entity):
     
     def move_random(self, world_width, world_height):
         """Патрулирование территории"""
-        self.hunger -= 0.005
+        self.hunger -= self.wander_cost
         
         if not self.wander_target or self.pos.distance_to(self.wander_target) < 30:
             angle = random.uniform(0, 2 * math.pi)
@@ -388,21 +390,34 @@ class Peaceful(Entity):
             dy = self.wander_target.y - self.pos.y
             dist = math.sqrt(dx**2 + dy**2)
             if dist > 0:
-                self.pos.x += (dx / dist) * self.dna.speed * 0.5
-                self.pos.y += (dy / dist) * self.dna.speed * 0.5
+                self.pos.x += (dx / dist) * self.dna.speed * self.wander_speed
+                self.pos.y += (dy / dist) * self.dna.speed * self.wander_speed
 
     def see_predator(self, all_entities):
         """Обнаружение хищников поблизости"""
         for e in all_entities:
             if isinstance(e, (Predator, Human)):
                 dist = self.pos.distance_to(e.pos)
-                detection_range = 150 + e.size * 5
+                detection_range = self.vision_base + e.size * self.vision_per_size
                 if dist < detection_range:
                     return e, dist
         return None, None
 
     def find_mate(self, all_entities):
-        if self.hunger < 60:
+        """Найти подходящего партнёра для размножения.
+        
+        Условия:
+        - Собственный голод >= breed_hunger
+        - Возраст >= breeding_age
+        - Кулдаун размножения истёк
+        - Партнёр того же типа (Peaceful)
+        - Не инцест (family_id различаются)
+        - Партнёр тоже сыт, взрослый и готов
+        
+        Returns:
+            Entity или None — ближайший подходящий партнёр
+        """
+        if self.hunger < self.breed_hunger:
             return None
         
         if self.age < self.breeding_age:
@@ -412,13 +427,16 @@ class Peaceful(Entity):
             return None
         
         closest = None
-        min_dist = 150
+        min_dist = self.vision_base
+        
         for e in all_entities:
             if isinstance(e, Peaceful) and e != self:
                 if e.dna.family_id == self.dna.family_id:
                     continue
                 
-                if e.hunger > 60 and e.age >= e.breeding_age and e.breed_cooldown <= 0:
+                if (e.hunger >= self.breed_hunger and 
+                    e.age >= e.breeding_age and 
+                    e.breed_cooldown <= 0):
                     dist = self.pos.distance_to(e.pos)
                     if dist < min_dist:
                         min_dist = dist
@@ -442,14 +460,14 @@ class DNA:
         if speed is not None:
             self.speed = speed 
         else:
-            self.speed = 3.5 * (8 / self.size)
+            self.speed = 1.5 + 0.5 * (self.size ** 0.333)
             self.speed = max(0.5, min(4.5, self.speed))
         
         # Питательность: если не указана, зависит от размера
-        self.nutrition_value = nutrition_value if nutrition_value is not None else self.size * 3
+        self.nutrition_value = nutrition_value if nutrition_value is not None else 3 * (self.size ** 0.75)
         
         # Порог голода: если не указан, зависит от размера
-        self.starvation_threshold = starvation_threshold if starvation_threshold is not None else max(20, 80 - self.size * 1.5)
+        self.starvation_threshold = starvation_threshold if starvation_threshold is not None else max(15, min(40, 10 + self.size * 2))
         
         # Смелость: если не указана, зависит от размера
         self.courage = courage if courage is not None else min(0.9, 0.4 + self.size * 0.03)
@@ -467,25 +485,31 @@ class DNA:
         DNA._next_family_id += 1
     
     def breed(self, other):
-        """Смешать ДНК родителей с мутацией"""
         child = DNA()
-        child.size = (self.size + other.size) / 2 + random.uniform(-1, 1)
+        
+        # Размер: среднее + гауссова мутация
+        child.size = (self.size + other.size) / 2 + random.gauss(0, 0.8)
         child.size = max(3, min(12, child.size))
         
-        child.speed = (self.speed + other.speed) / 2 + random.uniform(-0.5, 0.5)
+        # Скорость
+        child.speed = (self.speed + other.speed) / 2 + random.gauss(0, 0.3)
         child.speed = max(0.5, min(4.5, child.speed))
         
-        child.courage = (self.courage + other.courage) / 2 + random.uniform(-0.1, 0.1)
-        child.courage = min(0.9, max(0.1, child.courage))
+        # Смелость
+        child.courage = (self.courage + other.courage) / 2 + random.gauss(0, 0.08)
+        child.courage = max(0.1, min(0.9, child.courage))
         
-        child.attack = (self.attack + other.attack) / 2 + random.uniform(-0.5, 0.5)
+        # Атака
+        child.attack = (self.attack + other.attack) / 2 + random.gauss(0, 0.3)
         child.attack = max(0.5, child.attack)
         
-        child.hp = (self.hp + other.hp) / 2 + random.randint(-5, 5)
+        # HP — целое, поэтому оставляем randint но с меньшим разбросом
+        child.hp = int((self.hp + other.hp) / 2 + random.randint(-3, 3))
         child.hp = max(5, child.hp)
         
-        child.nutrition_value = child.size * 3
-        child.starvation_threshold = max(20, 80 - child.size * 1.5)
+        # Производные характеристики — пересчитываем из нового размера
+        child.nutrition_value = 3 * (child.size ** 0.75)
+        child.starvation_threshold = max(15, min(40, 10 + child.size * 2))
         
         child.family_id = DNA._next_family_id
         DNA._next_family_id += 1
