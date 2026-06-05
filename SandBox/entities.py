@@ -48,12 +48,21 @@ class Entity:
         self.vx = 0
         self.vy = 0
         self.timer = random.randint(30, 60)
+        self.hovered = False
 
     def __str__(self):
         return f"Entity at {self.pos}"
 
     def __repr__(self):
         return f"Entity({self.pos.x}, {self.pos.y}, '{self.color}')"
+    
+    def update_hover(self, mouse_world_pos):
+        if mouse_world_pos:
+            dist = self.pos.distance_to(mouse_world_pos)
+            self.hovered = dist < self.size + 5
+        else:
+            self.hovered = False
+
 
     def draw(self, pil_draw, camera=None):
         """Отрисовать Entity на PIL-холсте.
@@ -66,12 +75,25 @@ class Entity:
             x, y = camera.world_to_screen(self.pos.x, self.pos.y)
         else:
             x, y = self.pos.x, self.pos.y
+            
+        if self.hovered:
+            pil_draw.ellipse([x - self.size - 2, y - self.size - 2, x + self.size + 2, y + self.size + 2], 
+                            outline="yellow", width=2)
 
         if self.form == 'oval':
             pil_draw.ellipse([x - self.size, y - self.size, x + self.size, y + self.size], fill=self.color)
         elif self.form == 'rectangle':
             pil_draw.rectangle([x - self.size, y - self.size, x + self.size, y + self.size], fill=self.color)
-
+            
+        if getattr(self, 'hovered', False):
+            pil_draw.ellipse([x - self.size - 2, y - self.size - 2, x + self.size + 2, y + self.size + 2], 
+                            outline="yellow", width=2)
+            
+            hp = int(getattr(self, 'hp', 0)) if hasattr(self, 'hp') else '?'
+            hunger = int(getattr(self, 'hunger', 0)) if hasattr(self, 'hunger') else '?'
+            text = f"HP:{hp} Hung:{hunger}"
+            pil_draw.text((x + self.size + 5, y - 10), text, fill="black")
+            
     def move_to(self, x, y):
         """Телепортировать Entity в указанную точку.
         
@@ -330,7 +352,7 @@ class Predator(Entity):
         vision_range = self.vision_hungry if self.hunger < 30 else self.vision
 
         for e in all_entities:
-            if isinstance(e, Peaceful):
+            if isinstance(e, Peaceful) or type(e).__name__ == 'Human':
                 weakness_score = (e.dna.hp - e.hp) + (e.hunger < 30) * 50
                 dist = self.pos.distance_to(e.pos)
 
@@ -346,7 +368,7 @@ class Predator(Entity):
         else:
             self.target = None
             self.state = "patrol"
-
+        
     def chase_target(self, world_width=1200, world_height=750, all_entities=None):
         """Преследовать цель (охота) или патрулировать территорию.
         
@@ -383,7 +405,7 @@ class Predator(Entity):
             self.stuck_timer = 0
         self.last_pos = Vector(self.pos.x, self.pos.y)
         
-        if self.state == "hunt" and self.target and type(self.target).__name__ == "Peaceful":
+        if self.state == "hunt" and self.target and type(self.target).__name__ in ("Peaceful", "Human"):
             hunt_cost = self.hunt_cost + (self.dna.size / 10) * self.hunt_cost_per_size
             self.hunger -= hunt_cost
             
@@ -417,6 +439,8 @@ class Predator(Entity):
                 
                 # Обычная атака
                 damage_multiplier = 1.0 + (self.hunger < 20) * 0.5
+                if type(victim).__name__ == 'Human':
+                    damage_multiplier *= 2.0
                 damage = self.dna.attack * damage_multiplier
                 victim.hp -= damage
                 
@@ -515,6 +539,7 @@ class Predator(Entity):
                 if e.hunger >= self.breed_hunger and e.age >= e.breeding_age and e.breed_cooldown <= 0:
                     dist = self.pos.distance_to(e.pos)
                     if dist < min_dist:
+                        
                         min_dist = dist
                         closest = e
         return closest
@@ -689,16 +714,6 @@ class Peaceful(Entity):
         return None, None
 
     def find_mate(self, all_entities):
-        """Найти партнёра для размножения.
-        
-        Условия: сытость, зрелость, нет кулдауна, не инцест, партнёр тоже готов.
-        
-        Args:
-            all_entities (list): список всех Entity
-            
-        Returns:
-            Peaceful|None: ближайший подходящий партнёр
-        """
         if self.hunger < self.breed_hunger:
             return None
         if self.age < self.breeding_age:
@@ -711,6 +726,10 @@ class Peaceful(Entity):
         for e in all_entities:
             if isinstance(e, Peaceful) and e != self:
                 if e.dna.family_id == self.dna.family_id:
+                    continue
+                if e.dna.family_id in self.dna.parents:
+                    continue
+                if self.dna.family_id in e.dna.parents:
                     continue
                 if (e.hunger >= self.breed_hunger and 
                     e.age >= e.breeding_age and 
@@ -748,10 +767,61 @@ class Peaceful(Entity):
 
 
 class Human(Entity):
-    """Заглушка для будущего класса Человек.
-    Будет добавлен в v0.4 с характером, отношениями и строительством.
-    """
-    pass
+    """Человек с обучаемым мозгом, характером и отношениями."""
+    def __init__(self, x, y, color="#460864"):
+        from tests.brain import TestAgent as HumanBrain
+        dna = DNA(size=7, speed=2.5, attack=3, hp=60, courage=0.6)
+        super().__init__(x, y, color=color, dna=dna)
+        self.brain_agent = HumanBrain(x, y)
+        self.state = "learn"
+        self.hunger = self.brain_agent.hunger
+        self.hp = self.brain_agent.hp
+        self.size = self.brain_agent.size
+        self.last_state = None
+        self.last_action = None
+        self.inventory = self.brain_agent.inventory
+        self.relationships = self.brain_agent.relationships
+        self.personality = self.brain_agent.personality
+    
+    def update(self, world_objects, world_entities):
+        # Проверка смерти ДО всего
+        if self.hp <= 0 or self.hunger <= 0:
+            print(f"HUMAN DIED! HP={self.hp}, HUNGER={self.hunger}, SAVING BRAIN...")
+            self.brain_agent.brain.save("brain_memory.json")
+            return
+        
+        if self.hp < self.brain_agent.hp:
+            self.brain_agent.hp = self.hp
+        
+        state = self.brain_agent.get_state(world_objects, world_entities)
+        action = self.brain_agent.decide(world_objects, world_entities)
+        reward = self.brain_agent.do_action(action, world_objects, world_entities)
+        next_state = self.brain_agent.get_state(world_objects, world_entities)
+        
+        if self.last_state is not None:
+            self.brain_agent.brain.learn(self.last_state, self.last_action, reward, state)
+        
+        self.last_state = state
+        self.last_action = action
+        
+        self.pos.x = self.brain_agent.pos.x
+        self.pos.y = self.brain_agent.pos.y
+        self.hunger = self.brain_agent.hunger
+        self.hp = self.brain_agent.hp
+        self.size = self.brain_agent.size
+        self.inventory = self.brain_agent.inventory
+        self.relationships = self.brain_agent.relationships
+    
+    def draw(self, pil_draw, camera=None):
+        """Отрисовка Human как фиолетового прямоугольника."""
+        if camera:
+            x, y = camera.world_to_screen(self.pos.x, self.pos.y)
+        else:
+            x, y = self.pos.x, self.pos.y
+        pil_draw.rectangle(
+            [x - self.size, y - self.size, x + self.size, y + self.size],
+            fill="#460864"
+        )
 
 
 class DNA:
@@ -779,21 +849,6 @@ class DNA:
     def __init__(self, speed=None, size=None, attack=None, hp=None, 
                  nutrition_value=None, starvation_threshold=None, family_id=None,
                  courage=None):
-        """Создать ДНК.
-        
-        Все параметры опциональны. Если не указаны — вычисляются из размера
-        по природным формулам.
-        
-        Args:
-            speed (float|None): скорость (аллометрия если None)
-            size (float|None): размер (random 4-10 если None)
-            attack (float|None): атака
-            hp (int|None): здоровье
-            nutrition_value (float|None): питательность (Клайбер если None)
-            starvation_threshold (float|None): порог голода
-            family_id (int|None): ID семьи (автоинкремент если None)
-            courage (float|None): смелость
-        """
         self.size = size if size is not None else random.uniform(4, 10)
 
         if speed is not None:
@@ -811,20 +866,9 @@ class DNA:
         self.hp = max(5, int(self.hp))
         self.family_id = family_id if family_id is not None else DNA._next_family_id
         DNA._next_family_id += 1
+        self.parents = []  # family_id родителей
 
     def breed(self, other):
-        """Скрестить ДНК двух родителей с гауссовыми мутациями.
-        
-        Ребёнок получает среднее значение каждого гена + случайная мутация.
-        Малые мутации вероятнее крупных (гауссово распределение).
-        Инцест запрещён (проверяется снаружи).
-        
-        Args:
-            other (DNA): ДНК второго родителя
-            
-        Returns:
-            DNA: ДНК ребёнка с новым family_id
-        """
         child = DNA()
         child.size = (self.size + other.size) / 2 + random.gauss(0, 0.8)
         child.size = max(3, min(12, child.size))
@@ -838,9 +882,11 @@ class DNA:
         child.hp = max(5, child.hp)
         child.nutrition_value = 3 * (child.size ** 0.75)
         child.starvation_threshold = max(15, min(40, 10 + child.size * 2))
-        child.family_id = DNA._next_family_id
-        DNA._next_family_id += 1
+        child.family_id = self.family_id
+        child.parents = [self.family_id, other.family_id]
+        print(f"BREED! mother_id={self.family_id}, father_id={other.family_id}, child_id={child.family_id}, child_parents={child.parents}")
         return child
+    
 
 
 def mix_colors(c1, c2):

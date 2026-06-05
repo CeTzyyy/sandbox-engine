@@ -175,7 +175,7 @@ class Den(StaticObject):
             color: цвет логова (hex, используется как базовый)
         """
         super().__init__(x, y, color=color, form='oval', size=size, collision=False, layer='lift')
-        self.safe_radius = 80
+        self.safe_radius = size
         self.base_color = color
         self.alpha = 100  # обычная полупрозрачность
         self.hovered = False
@@ -207,7 +207,7 @@ class Den(StaticObject):
         else:
             x, y = self.pos.x, self.pos.y
         
-        alpha = 100 if self.hovered else 1020
+        alpha = 100 if self.hovered else 255
         
         # Конвертируем hex в RGB
         r = int(self.base_color[1:3], 16)

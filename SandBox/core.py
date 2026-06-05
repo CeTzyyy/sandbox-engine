@@ -1,6 +1,7 @@
 # SandBox/core.py — основной движок симуляции экосистемы
 # CeTzyyy © 2026
 
+
 __progect = 'Песочница на tkinter с NPC и простым AI'
 
 import tkinter as tk
@@ -239,13 +240,13 @@ class SandBox:
             for entity in self._entities:
                 if entity == self._player: 
                     continue
-                if isinstance(entity, Peaceful) and getattr(entity, 'state', None) == "flee":
+                if isinstance(entity, Peaceful) and getattr(entity, 'state', None) in ("flee", "rest"):
                     continue
                 nearby = self._grid.get_nearby(entity)
                 for other in nearby:
                     if other == self._player:
                         continue
-                    if isinstance(other, Peaceful) and getattr(other, 'state', None) == "flee":
+                    if isinstance(other, Peaceful) and getattr(other, 'state', None) in ("flee", "rest"):
                         continue
                     if entity != other and entity.is_colliding_with(other):
                         dx = entity.pos.x - other.pos.x
@@ -265,7 +266,7 @@ class SandBox:
             for entity in self._entities:
                 if entity == self._player:
                     continue
-                if isinstance(entity, Peaceful) and getattr(entity, 'state', None) == "flee":
+                if isinstance(entity, Peaceful) and getattr(entity, 'state', None) in ("flee", "rest"):
                     continue
                 for obj in self._objects:
                     if obj.layer == "lower":
@@ -343,7 +344,7 @@ class SandBox:
         Args:
             FPS: кадров в секунду
         """
-        from SandBox.entities import Entity, Peaceful, Predator, mix_colors
+        from SandBox.entities import Entity, Peaceful, Predator, Human, mix_colors
         from SandBox.objects import Plant, Den
         delay = 1000 // FPS
         
@@ -377,7 +378,8 @@ class SandBox:
         # Движение не-хищников и не-мирных (Player, будущие Human)
         for e in self._entities:
             if e != self._player and not isinstance(e, Predator) and not isinstance(e, Peaceful):
-                e.move_random(self._world_width, self._world_height)
+                if not isinstance(e, Human):
+                    e.move_random(self._world_width, self._world_height)
         
         self.check_collision()
         
@@ -419,6 +421,14 @@ class SandBox:
                             e.state = "patrol"
                             e.patrol_target = None
                             e.patrol_steps = 180
+                            # Отойти от логова — только если ещё не отходил
+                            if not getattr(e, '_fled_den', False):
+                                angle = random.uniform(0, 2 * math.pi)
+                                e.pos.x += math.cos(angle) * 40
+                                e.pos.y += math.sin(angle) * 40
+                                e._fled_den = True
+                        else:
+                            e._fled_den = False
                     
                     victim = e.chase_target(self._world_width, self._world_height)
                     if victim and victim in self._entities:
@@ -574,6 +584,12 @@ class SandBox:
                         continue
                 if e.hunger <= 0:
                     dead.append(e)
+                    
+                
+        # TestEntity — смерть от голода или HP
+        for e in self._entities:
+            if isinstance(e, Human):
+                e.update(self._objects, self._entities)
 
         self._total_deaths += len(dead)
 
@@ -716,6 +732,7 @@ class SandBox:
                         e.flee_vx = 0
                         e.flee_vy = 0
                     e.stuck_frames = 0
+            
         
         self._ground.after(delay, lambda: self.update(FPS))
                 
@@ -746,6 +763,8 @@ class SandBox:
         for obj in self._objects:
             if isinstance(obj, Den):
                 obj.update_hover(mouse_pos)
+        for e in self._entities:
+            e.update_hover(mouse_pos)
         
     def on_click(self, event):
         """ПКМ: показать информацию о существе под курсором."""
