@@ -1,7 +1,6 @@
 """
 Модуль сущностей экосистемы SandBox Engine.
-Содержит базовые классы Entity, DNA, хищников (Predator), мирных (Peaceful),
-заглушку Human и утилиту смешивания цветов.
+Содержит базовые классы Entity, DNA, хищников (Predator), мирных (Peaceful).
 """
 
 import math
@@ -65,7 +64,7 @@ class Entity:
 
 
     def draw(self, pil_draw, camera=None):
-        """Отрисовать Entity на PIL-холсте.
+        """Отрисовать Entity на холсте.
         
         Args:
             pil_draw (ImageDraw): объект для рисования
@@ -140,8 +139,8 @@ class Entity:
                 self.pos.y += (dy / dist) * speed
 
     def avoid_boundaries(self, world_offset_x, world_offset_y, world_width, world_height):
-        """Мягкое отталкивание от границ мира.
-        Если сила толчка большая — сбрасывает цель патруля/блуждания.
+        """Oтталкивание от границ мира.
+        Ecли cилa тoлчкa бoльшaя — cбpacываeт цeль пaтpyля/блyждaния.
         
         Args:
             world_offset_x (int): левая граница мира
@@ -420,15 +419,12 @@ class Predator(Entity):
             dist = math.sqrt(dx**2 + dy**2)
             
             if dist < self.size + victim.size:
-                # Проверка: мирные дают отпор?
                 counter_damage = 0
                 if all_entities and hasattr(victim, 'fight_back'):
                     counter_damage = victim.fight_back(self, all_entities)
                 
                 if counter_damage > 0:
-                    # Мирные атакуют группой!
                     self.hp -= counter_damage
-                    # Отбросить хищника
                     if dist > 0:
                         self.pos.x -= (dx / dist) * 15
                         self.pos.y -= (dy / dist) * 15
@@ -437,7 +433,6 @@ class Predator(Entity):
                     self.patrol_steps = 0
                     return None
                 
-                # Обычная атака
                 damage_multiplier = 1.0 + (self.hunger < 20) * 0.5
                 if type(victim).__name__ == 'Human':
                     damage_multiplier *= 2.0
@@ -517,17 +512,16 @@ class Predator(Entity):
         if self.breed_cooldown > 0:
             return None
         
-        # Популяция → радиус поиска
         population = len([e for e in all_entities if isinstance(e, Predator)])
         
         if population <= 2:
-            search_radius = 2000   # вся карта
+            search_radius = 2000 
         elif population <= 4:
             search_radius = 1000
         elif population <= 6:
             search_radius = 500
         else:
-            search_radius = 300   # стандарт
+            search_radius = 300
         
         closest = None
         min_dist = search_radius
@@ -663,10 +657,7 @@ class Peaceful(Entity):
         for ally in all_allies:
             if ally != self and self.pos.distance_to(ally.pos) < 80:
                 nearby_allies += 1
-        
-        # Нужно минимум 5 мирных рядом чтобы дать отпор
         if nearby_allies >= 5:
-            # Коллективная атака: каждый мирной наносит 0.3-0.8 урона
             damage = nearby_allies * random.uniform(0.3, 0.8)
             return damage
         return 0
@@ -784,7 +775,6 @@ class Human(Entity):
         self.personality = self.brain_agent.personality
     
     def update(self, world_objects, world_entities):
-        # Проверка смерти ДО всего
         if self.hp <= 0 or self.hunger <= 0:
             self.brain_agent.brain.save("brain_memory.json")
             return
@@ -865,7 +855,7 @@ class DNA:
         self.hp = max(5, int(self.hp))
         self.family_id = family_id if family_id is not None else DNA._next_family_id
         DNA._next_family_id += 1
-        self.parents = []  # family_id родителей
+        self.parents = [] 
 
     def breed(self, other):
         child = DNA()
