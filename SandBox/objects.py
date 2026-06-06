@@ -4,7 +4,7 @@ from .core import Vector
 
 
 class StaticObject:
-    """Базовый класс для всех статичных объектов мира (камни, стены, декорации).
+    """Базовый класс для всех статичных объектов мира (камни, стены, декорации, пища).
     
     Поддерживает две формы (oval/rectangle), слои (lower/lift) и коллизии.
     Объекты слоя 'lower' рисуются ПОД сущностями, слоя 'lift' — НАД.
@@ -43,7 +43,7 @@ class StaticObject:
         return f"Object({self.pos.x}, {self.pos.y}, '{self.color}')"
 
     def draw(self, pil_draw, camera=None):
-        """Отрисовать объект на PIL-изображении с учётом камеры.
+        """Отрисовать объект с учётом камеры.
         
         Args:
             pil_draw: ImageDraw.Draw объект для рисования
@@ -76,7 +76,7 @@ class StaticObject:
 
 
 class Plant(StaticObject):
-    """Съедобное растение. Растёт со временем, поедается мирными, удобряется трупами.
+    """Съедобное растение. Растёт со временем, поедается мирными, удобряется погибшими существами.
     
     Параметры роста и питательности настраиваются индивидуально при создании.
     Мёртвые растения (size=0) могут возродиться с шансом respawn_chance каждый кадр.
@@ -158,11 +158,10 @@ class Den(StaticObject):
     """Логово/убежище для мирных существ.
     
     Мирные внутри safe_radius считаются в безопасности — хищники их не атакуют.
-    Отрисовывается полупрозрачным, при наведении мыши становится ярче.
     
     Attributes:
         safe_radius (float): радиус безопасности (80px)
-        alpha (int): прозрачность (0-255), 100 = полупрозрачное, 200 = при наведении
+        alpha (int): прозрачность (0-255)
         hovered (bool): флаг наведения курсора
     """
     
@@ -177,7 +176,7 @@ class Den(StaticObject):
         super().__init__(x, y, color=color, form='oval', size=size, collision=False, layer='lift')
         self.safe_radius = size
         self.base_color = color
-        self.alpha = 100  # обычная полупрозрачность
+        self.alpha = 100
         self.hovered = False
 
     def is_safe(self, entity):
@@ -201,7 +200,7 @@ class Den(StaticObject):
             self.hovered = False
     
     def draw(self, pil_draw, camera=None):
-        """Отрисовать полупрозрачное логово. Ярче при наведении."""
+        """Отрисовать полупрозрачное логово."""
         if camera:
             x, y = camera.world_to_screen(self.pos.x, self.pos.y)
         else:
