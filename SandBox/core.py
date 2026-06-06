@@ -72,7 +72,7 @@ class SandBox:
         self._follow_target = None
         self._selected_entity = None
         
-        # Холст и PIL-изображение для рендеринга
+        # Холст
         self._canvas = tk.Canvas(self._ground, bg="white")
         self._canvas.pack(fill=tk.BOTH, expand=True)
         
@@ -285,7 +285,6 @@ class SandBox:
                             entity.pos.x += nx * overlap
                             entity.pos.y += ny * overlap
                             
-            # Мягкое отталкивание от границ мира
             margin = 50
             for entity in self._entities:
                 left = self._world_offset_x + margin
@@ -348,7 +347,6 @@ class SandBox:
         from SandBox.objects import Plant, Den
         delay = 1000 // FPS
         
-        # FPS и статистика в заголовке окна
         self._fps_counter += 1
         current_time = time.time()
         elapsed = current_time - self._fps_timer
@@ -375,7 +373,7 @@ class SandBox:
         
         self.draw_all()
         
-        # Движение не-хищников и не-мирных (Player, будущие Human)
+        # Движение не-хищников и не-мирных
         for e in self._entities:
             if e != self._player and not isinstance(e, Predator) and not isinstance(e, Peaceful):
                 if not isinstance(e, Human):
@@ -386,15 +384,12 @@ class SandBox:
         if self._player:
             self._player.move_to_target()
             
-        # =============================================
         # ХИЩНИКИ: поиск партнёра ИЛИ охота
-        # =============================================
         victims_to_remove = []
         for e in self._entities:
             if isinstance(e, Predator):
                 mate = e.find_mate(self._entities)
                 if mate:
-                    # Есть партнёр — двигаться к нему
                     e.state = "seek_mate"
                     e.target_mate = mate
                     dx = mate.pos.x - e.pos.x
@@ -406,10 +401,8 @@ class SandBox:
                         e.pos.y += (dy / dist) * speed
                     e.hunger -= getattr(e, 'mate_cost', 0.01)
                 else:
-                    # Нет партнёра — искать добычу
                     e.find_target(self._entities)
                     
-                    # Цель или сам хищник в логове? — сбросить цель, уйти
                     if e.target:
                         in_den = False
                         for obj in self._objects:
@@ -421,7 +414,6 @@ class SandBox:
                             e.state = "patrol"
                             e.patrol_target = None
                             e.patrol_steps = 180
-                            # Отойти от логова — только если ещё не отходил
                             if not getattr(e, '_fled_den', False):
                                 angle = random.uniform(0, 2 * math.pi)
                                 e.pos.x += math.cos(angle) * 40
@@ -438,10 +430,7 @@ class SandBox:
             if victim in self._entities:
                 self._entities.remove(victim)
         self._total_kills += len(victims_to_remove)
-        
-        # =============================================
-        # МИРНЫЕ: одна сила — flee/home ИЛИ mate ИЛИ graze ИЛИ wander
-        # =============================================
+    
         dead = []
         for e in self._entities:
             if isinstance(e, Peaceful):
@@ -451,9 +440,7 @@ class SandBox:
                 threat, threat_dist = e.see_predator(self._entities)
                 
                 if threat:
-                    # === ПРИОРИТЕТ 1: Угроза — бежать к логову или от хищника ===
                     
-                    # Проверить, уже в безопасности?
                     already_safe = False
                     for obj in self._objects:
                         if isinstance(obj, Den) and obj.is_safe(e):
@@ -461,17 +448,14 @@ class SandBox:
                             break
                     
                     if already_safe:
-                        # В логове — отдых, не паниковать
                         e.state = "rest"
                         e.flee_vx = 0
                         e.flee_vy = 0
                         e.target_mate = None
                     else:
-                        # Не в логове — найти ближайшее и бежать к нему
                         home = e.want_to_go_home(self._objects)
                         
                         if home:
-                            # Бежим к логову
                             dx = home.pos.x - e.pos.x
                             dy = home.pos.y - e.pos.y
                             dist = Vector(dx, dy).length()
@@ -483,13 +467,11 @@ class SandBox:
                             e.state = "flee"
                             e.target_mate = None
                             
-                            # Добежали?
                             if dist < home.safe_radius:
                                 e.state = "rest"
                                 e.flee_vx = 0
                                 e.flee_vy = 0
                         else:
-                            # Нет логова поблизости — просто бежать от хищника
                             if threat_dist < 50:
                                 speed_mult = e.flee_speed_close * hunger_mod * hp_mod
                                 hunger_cost = e.flee_cost_close
@@ -513,7 +495,6 @@ class SandBox:
                             e.state = "flee"
                             e.target_mate = None
                 else:
-                    # === НЕТ УГРОЗЫ: приоритет 2 — партнёр, 3 — еда, 4 — wander ===
                     mate = e.find_mate(self._entities)
                     if mate:
                         e.state = "seek_mate"
@@ -527,7 +508,6 @@ class SandBox:
                             e.pos.y += (dy / dist) * speed
                         e.hunger -= e.mate_cost
                     else:
-                        # Ищем ближайшее растение
                         closest_plant = None
                         min_plant_dist = 100
                         
@@ -558,9 +538,7 @@ class SandBox:
                             e.move_random(self._world_width, self._world_height)
                             e.hunger -= e.base_metabolism * (e.dna.size ** 0.75)
         
-        # =============================================
         # ЗДОРОВЬЕ ОТ ГОЛОДА
-        # =============================================
         for e in self._entities:
             if isinstance(e, Peaceful):
                 if e.hunger >= e.hp_regen_threshold:
@@ -584,18 +562,9 @@ class SandBox:
                         continue
                 if e.hunger <= 0:
                     dead.append(e)
-                    
-                
-        # TestEntity — смерть от голода или HP
-        for e in self._entities:
-            if isinstance(e, Human):
-                e.update(self._objects, self._entities)
 
-        self._total_deaths += len(dead)
 
-        # =============================================
         # СМЕРТЬ: удобрение почвы
-        # =============================================
         for e in dead:
             if e in self._entities:
                 for _ in range(3):
@@ -606,9 +575,7 @@ class SandBox:
                     self._objects.append(plant)
                 self._entities.remove(e)
                 
-        # =============================================
         # РОСТ, СТАРЕНИЕ, КУЛДАУНЫ
-        # =============================================
         for e in self._entities:
             if isinstance(e, (Peaceful, Predator)):
                 if e.size < e.max_size:
@@ -619,9 +586,7 @@ class SandBox:
                 if e.breed_cooldown > 0:
                     e.breed_cooldown -= 1
         
-        # =============================================
         # РАЗМНОЖЕНИЕ
-        # =============================================
         new_borns = []
         for i in range(len(self._entities)):
             for j in range(i+1, len(self._entities)):
@@ -671,9 +636,7 @@ class SandBox:
         for child in new_borns:
             self._entities.append(child)
         
-        # =============================================
         # КАМЕРА, ТРАВА, ИСТОЩЕНИЕ, ГРАНИЦЫ
-        # =============================================
         if self._follow_target and self._follow_target in self._entities:
             self._camera.x = self._follow_target.pos.x - self.width / 2
             self._camera.y = self._follow_target.pos.y - self.height / 2
@@ -694,13 +657,8 @@ class SandBox:
                 e.avoid_boundaries(self._world_offset_x, self._world_offset_y, 
                                 self._world_width, self._world_height)
                 e.add_random_deviation(0.2)
-        
-        # =============================================
-        # АНТИ-ЗАСТРЕВАНИЕ
-        # =============================================
         for e in self._entities:
             if isinstance(e, (Peaceful, Predator)):
-                # Мирные в логове — не трогать
                 if isinstance(e, Peaceful) and e.state == "rest":
                     continue
                 
@@ -716,8 +674,7 @@ class SandBox:
                     e.stuck_frames = max(0, e.stuck_frames - 1)
                 
                 e.last_stuck_pos = Vector(e.pos.x, e.pos.y)
-                
-                # Застрял на 2+ секунды — мягкий толчок и сброс целей
+            
                 if e.stuck_frames > 120:
                     angle = random.uniform(0, 2 * math.pi)
                     e.pos.x += math.cos(angle) * 5
