@@ -209,12 +209,10 @@ class Den(StaticObject):
         
         alpha = 100 if self.hovered else 255
         
-        # Конвертируем hex в RGB
         r = int(self.base_color[1:3], 16)
         g = int(self.base_color[3:5], 16)
         b = int(self.base_color[5:7], 16)
         
-        # Рисуем через overlay с альфа-каналом
         from PIL import Image as PILImage, ImageDraw as PILImageDraw
         
         size_px = int(self.size * 2)
@@ -222,5 +220,4 @@ class Den(StaticObject):
         overlay_draw = PILImageDraw.Draw(overlay)
         overlay_draw.ellipse([0, 0, size_px, size_px], fill=(r, g, b, alpha))
         
-        # Вставляем на основной PIL-рисунок
         pil_draw._image.paste(overlay, (int(x - self.size), int(y - self.size)), overlay)
