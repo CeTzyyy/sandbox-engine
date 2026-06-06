@@ -786,7 +786,6 @@ class Human(Entity):
     def update(self, world_objects, world_entities):
         # Проверка смерти ДО всего
         if self.hp <= 0 or self.hunger <= 0:
-            print(f"HUMAN DIED! HP={self.hp}, HUNGER={self.hunger}, SAVING BRAIN...")
             self.brain_agent.brain.save("brain_memory.json")
             return
         
@@ -884,7 +883,6 @@ class DNA:
         child.starvation_threshold = max(15, min(40, 10 + child.size * 2))
         child.family_id = self.family_id
         child.parents = [self.family_id, other.family_id]
-        print(f"BREED! mother_id={self.family_id}, father_id={other.family_id}, child_id={child.family_id}, child_parents={child.parents}")
         return child
     
 
