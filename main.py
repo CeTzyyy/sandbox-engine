@@ -1,5 +1,6 @@
 # main_simple.py — базовая симуляция
 from SandBox import SandBox, Peaceful, Predator
+import random
 
 game = SandBox(world_height=2000, world_width=2000)
 
@@ -19,7 +20,6 @@ game.spawn_random_entities(10, Peaceful,
     flee_speed_close=1.5, vision_base=180, breed_chance=0.008, breeding_age=180)
 
 # Хищники — компактный спавн в центре
-import random
 for _ in range(6):
     x = random.randint(-200, 200)
     y = random.randint(-200, 200)
