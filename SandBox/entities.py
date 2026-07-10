@@ -1,3 +1,6 @@
+# Copyright (c) 2026 CeTzyyy. All rights reserved.
+# Licensed under SandBox Engine License. See LICENSE file in the project root for full license information.
+
 """
 Модуль сущностей экосистемы SandBox Engine.
 Содержит базовые классы Entity, DNA, хищников (Predator), мирных (Peaceful).
