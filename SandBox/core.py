@@ -3,7 +3,7 @@
 
 # SandBox/core.py — основной движок симуляции экосистемы
 
-__progect = 'Песочница на tkinter с NPC и простым AI'
+__project = 'Песочница на tkinter с NPC и простым AI'
 
 import tkinter as tk
 import math
