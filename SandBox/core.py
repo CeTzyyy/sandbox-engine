@@ -1,6 +1,7 @@
-# SandBox/core.py — основной движок симуляции экосистемы
-# CeTzyyy © 2026
+# Copyright (c) 2026 CeTzyyy. All rights reserved.
+# Licensed under SandBox Engine License. See LICENSE file in the project root for full license information.
 
+# SandBox/core.py — основной движок симуляции экосистемы
 
 __progect = 'Песочница на tkinter с NPC и простым AI'
 
