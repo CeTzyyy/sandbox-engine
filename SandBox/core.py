@@ -101,10 +101,10 @@ class SandBox:
         self._canvas_image = self._canvas.create_image(0, 0, anchor="nw", image=self._tk_image)
     
     def __str__(self):
-        return f"Проект: {__progect}"
+        return f"Проект: {__project}"
     
     def __repr__(self):
-        return f"Project('{__progect}')"
+        return f"Project('{__project}')"
     
     def __call__(self, FPS=60):
         """Запустить симуляцию с указанным FPS.
